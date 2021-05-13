@@ -1,18 +1,18 @@
 use clarity::Address as EthAddress;
 use deep_space::address::Address;
 use gravity_proto::gravity::query_client::QueryClient as GravityQueryClient;
-use gravity_proto::gravity::QueryBatchConfirmsRequest;
-use gravity_proto::gravity::QueryCurrentValsetRequest;
-use gravity_proto::gravity::QueryLastEventNonceByAddrRequest;
-use gravity_proto::gravity::QueryLastPendingBatchRequestByAddrRequest;
-use gravity_proto::gravity::QueryLastPendingLogicCallByAddrRequest;
-use gravity_proto::gravity::QueryLastPendingValsetRequestByAddrRequest;
-use gravity_proto::gravity::QueryLastValsetRequestsRequest;
-use gravity_proto::gravity::QueryLogicConfirmsRequest;
-use gravity_proto::gravity::QueryOutgoingLogicCallsRequest;
-use gravity_proto::gravity::QueryOutgoingTxBatchesRequest;
-use gravity_proto::gravity::QueryValsetConfirmsByNonceRequest;
-use gravity_proto::gravity::QueryValsetRequestRequest;
+use gravity_proto::gravity::BatchTxEthereumSignaturesRequest;
+// use gravity_proto::gravity::QueryCurrentValsetRequest;
+use gravity_proto::gravity::LastSubmittedEthereumEventRequest;
+use gravity_proto::gravity::PendingBatchTxEthereumSignaturesRequest;
+// use gravity_proto::gravity::PendingContractCallTxEthereumSignaturesRequest;
+use gravity_proto::gravity::PendingUpdateSignerSetTxEthereumSignaturesRequest;
+use gravity_proto::gravity::UpdateSignerSetTxsRequest;
+use gravity_proto::gravity::ContractCallTxRequest;
+// use gravity_proto::gravity::QueryOutgoingLogicCallsRequest;
+// use gravity_proto::gravity::QueryOutgoingTxBatchesRequest;
+use gravity_proto::gravity::UpdateSignerSetTxEthereumSignaturesRequest;
+use gravity_proto::gravity::UpdateSignerSetTxRequest;
 use gravity_utils::error::GravityError;
 use gravity_utils::types::*;
 use tonic::transport::Channel;
@@ -23,9 +23,9 @@ pub async fn get_valset(
     nonce: u64,
 ) -> Result<Option<Valset>, GravityError> {
     let request = client
-        .valset_request(QueryValsetRequestRequest { nonce })
+        .update_signer_set_tx(UpdateSignerSetTxRequest { nonce })
         .await?;
-    let valset = request.into_inner().valset;
+    let valset = request.into_inner().signer_set;
     let valset = match valset {
         Some(v) => Some(v.into()),
         None => None,
@@ -41,8 +41,8 @@ pub async fn get_valset(
 pub async fn get_current_valset(
     client: &mut GravityQueryClient<Channel>,
 ) -> Result<Valset, GravityError> {
-    let request = client.current_valset(QueryCurrentValsetRequest {}).await?;
-    let valset = request.into_inner().valset;
+    let request = client.update_signer_set_tx(UpdateSignerSetTxRequest { nonce: 0 }).await?;
+    let valset = request.into_inner().signer_set;
     if let Some(valset) = valset {
         Ok(valset.into())
     } else {
@@ -60,11 +60,11 @@ pub async fn get_oldest_unsigned_valsets(
     address: Address,
 ) -> Result<Vec<Valset>, GravityError> {
     let request = client
-        .last_pending_valset_request_by_addr(QueryLastPendingValsetRequestByAddrRequest {
+        .pending_update_signer_set_tx_ethereum_signatures(PendingUpdateSignerSetTxEthereumSignaturesRequest {
             address: address.to_string(),
         })
         .await?;
-    let valsets = request.into_inner().valsets;
+    let valsets = request.into_inner().signer_sets;
     // convert from proto valset type to rust valset type
     let valsets = valsets.iter().map(|v| v.into()).collect();
     Ok(valsets)
@@ -76,9 +76,9 @@ pub async fn get_latest_valsets(
     client: &mut GravityQueryClient<Channel>,
 ) -> Result<Vec<Valset>, GravityError> {
     let request = client
-        .last_valset_requests(QueryLastValsetRequestsRequest {})
+        .update_signer_set_txs(UpdateSignerSetTxsRequest { count: 5 })
         .await?;
-    let valsets = request.into_inner().valsets;
+    let valsets = request.into_inner().signer_sets;
     Ok(valsets.iter().map(|v| v.into()).collect())
 }
 
@@ -88,7 +88,7 @@ pub async fn get_all_valset_confirms(
     nonce: u64,
 ) -> Result<Vec<ValsetConfirmResponse>, GravityError> {
     let request = client
-        .valset_confirms_by_nonce(QueryValsetConfirmsByNonceRequest { nonce })
+        .valset_confirms_by_nonce(UpdateSignerSetTxEthereumSignaturesRequest { nonce })
         .await?;
     let confirms = request.into_inner().confirms;
     let mut parsed_confirms = Vec::new();
@@ -103,7 +103,7 @@ pub async fn get_oldest_unsigned_transaction_batch(
     address: Address,
 ) -> Result<Option<TransactionBatch>, GravityError> {
     let request = client
-        .last_pending_batch_request_by_addr(QueryLastPendingBatchRequestByAddrRequest {
+        .pending_batch_tx_ethereum_signatures(PendingBatchTxEthereumSignaturesRequest {
             address: address.to_string(),
         })
         .await?;
@@ -120,7 +120,7 @@ pub async fn get_latest_transaction_batches(
     client: &mut GravityQueryClient<Channel>,
 ) -> Result<Vec<TransactionBatch>, GravityError> {
     let request = client
-        .outgoing_tx_batches(QueryOutgoingTxBatchesRequest {})
+        .batch_tx(BatchTxRequest {})
         .await?;
     let batches = request.into_inner().batches;
     let mut out = Vec::new();
@@ -137,7 +137,7 @@ pub async fn get_transaction_batch_signatures(
     contract_address: EthAddress,
 ) -> Result<Vec<BatchConfirmResponse>, GravityError> {
     let request = client
-        .batch_confirms(QueryBatchConfirmsRequest {
+        .batch_confirms(BatchTxEthereumSignaturesRequest {
             nonce,
             contract_address: contract_address.to_string(),
         })
@@ -157,7 +157,7 @@ pub async fn get_last_event_nonce(
     address: Address,
 ) -> Result<u64, GravityError> {
     let request = client
-        .last_event_nonce_by_addr(QueryLastEventNonceByAddrRequest {
+        .last_event_nonce_by_addr(LastSubmittedEthereumEventRequest {
             address: address.to_string(),
         })
         .await?;
@@ -185,7 +185,7 @@ pub async fn get_logic_call_signatures(
     invalidation_nonce: u64,
 ) -> Result<Vec<LogicCallConfirmResponse>, GravityError> {
     let request = client
-        .logic_confirms(QueryLogicConfirmsRequest {
+        .logic_confirms(ContractCallTxRequest {
             invalidation_id,
             invalidation_nonce,
         })
@@ -203,7 +203,7 @@ pub async fn get_oldest_unsigned_logic_call(
     address: Address,
 ) -> Result<Option<LogicCall>, GravityError> {
     let request = client
-        .last_pending_logic_call_by_addr(QueryLastPendingLogicCallByAddrRequest {
+        .pending_batch_tx_ethereum_signatures(PendingBatchTxEthereumSignaturesRequest {
             address: address.to_string(),
         })
         .await?;
